@@ -45,7 +45,7 @@ const connection = await client.toDuckDB(asset, "BTC", latest, {
   columns: ["time", "close", "volume"],
 });
 try {
-  const result = await connection.run(
+  const result = await connection.runAndReadAll(
     "SELECT count(*) AS bars, round(avg(close), 2) AS avg_close, " +
       "round(sum(volume), 2) AS volume FROM tessera",
   );

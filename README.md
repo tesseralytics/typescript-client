@@ -2,31 +2,28 @@
 
 # tessera-api
 
-**Clean Hyperliquid market data — straight into DuckDB & Arrow.**
+**Clean Hyperliquid market data, straight into DuckDB and Arrow.**
 
-[![npm](https://img.shields.io/npm/v/tessera-api.svg)](https://www.npmjs.com/package/tessera-api)
-[![CI](https://github.com/tesseralytics/ts-client/actions/workflows/ci.yml/badge.svg)](https://github.com/tesseralytics/ts-client/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/tessera-api.svg)](https://www.npmjs.com/package/tessera-api)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
-The official TypeScript client for [**Tessera**](https://tesseralytics.dev) — order-flow-enriched
-OHLCV, funding-rate, and positioning datasets built from raw Hyperliquid trade data,
-delivered as Parquet over a REST API.
+The official TypeScript client for [**Tessera**](https://tesseralytics.dev): order-flow-enriched
+OHLCV, funding-rate, and positioning datasets built from raw Hyperliquid trade data, delivered
+as Parquet over a REST API.
 
 </div>
 
----
-
 ## Why tessera-api
 
-- **Read where the data lives.** Partitioned Parquet is read directly from object storage
-  over HTTPS range requests. DuckDB pushes predicates and projections down, so only the row
-  groups and columns your query touches cross the wire — no temp files, no glue code.
+- **Read where the data lives.** Partitioned Parquet is read directly from object storage over
+  HTTPS range requests. DuckDB pushes predicates and projections down, so only the row groups
+  and columns your query touches cross the wire, with no temp files and no glue code.
 - **Two shapes, one API.** An Apache Arrow `Table` for pipeline code, or an in-memory DuckDB
   connection exposing a `tessera` view you query with plain SQL.
-- **Async throughout.** Native `fetch` under the hood — no callbacks, no hidden pool to close.
-- **Typed end to end.** Response models are generated from the OpenAPI spec, every failure is
-  a `TesseraError`, and transient failures (429/5xx, network errors) are retried with
-  exponential backoff and `Retry-After` handling.
+- **Async throughout.** Native `fetch` under the hood: no callbacks, no hidden pool to close.
+- **Typed end to end.** Response models are generated from the OpenAPI spec, every failure is a
+  `TesseraError`, and transient failures (429/5xx, network errors) are retried with exponential
+  backoff and `Retry-After` handling.
 
 ## Installation
 
@@ -36,27 +33,23 @@ npm install tessera-api
 npm install @duckdb/node-api apache-arrow
 ```
 
-Requires **Node 18.17+** (native `fetch`, `AbortSignal.timeout`). Grab a free API key (no
-card required) at **[tesseralytics.dev](https://tesseralytics.dev)**:
+Requires **Node 18.17+** (native `fetch`, `AbortSignal.timeout`). Grab a free API key (no card
+required) at **[tesseralytics.dev](https://tesseralytics.dev/signup)**:
 
 ```bash
 export TESSERA_API_KEY="ts_..."
 ```
 
-The free tier covers every coin and all three datasets over the trailing 30 days; full
-history is available as one-off download bundles (see
-[Free tier and history bundles](#free-tier-and-history-bundles)).
-
 ## Free tier and history bundles
 
-The free tier needs no card. It covers **every coin** and **all three datasets** —
-`gold_ohlcv_1m`, `gold_funding_1h` and `gold_positioning_1h` — over the trailing 30 days.
-The API serves that window at month granularity, so a free key sees the current and
-previous calendar month; the window is the only restriction.
+The free tier needs no card. It covers **every coin** and **all three datasets**
+(`gold_ohlcv_1m`, `gold_funding_1h` and `gold_positioning_1h`) over the trailing 30 days. The
+API serves that window at month granularity, so a free key sees the current and previous
+calendar month; the window is the only restriction.
 
-History beyond the window is sold as one-off download bundles of the **closed months**.
-Each bundle carries all three datasets, is frozen at purchase, and is perpetual on the
-account — every API key you hold inherits it:
+History beyond the window is sold as one-off download bundles of the **closed months**. Each
+bundle carries all three datasets, is frozen at purchase, and is perpetual on the account:
+every API key you hold inherits it.
 
 | Bundle | Markets | Price |
 | --- | --- | --- |
@@ -76,8 +69,8 @@ entitlement, so the client needs no plan logic of its own. See
 | `gold_funding_1h` | 1 hour | Funding rate, predicted rate, premium, next funding time |
 | `gold_positioning_1h` | 1 hour | Open interest, long/short account ratios, taker buy/sell pressure |
 
-`datasets()` returns the live catalogue for your key — names, coins, and month coverage —
-so discover rather than hardcode.
+`datasets()` returns the live catalogue for your key (names, coins, and month coverage), so
+discover rather than hardcode.
 
 ## Quickstart
 
@@ -88,22 +81,19 @@ const client = new TesseraClient(); // reads $TESSERA_API_KEY
 
 // Partitions roll on a trailing 30-day window, so discover the newest available
 // month instead of hardcoding a date:
-const catalogue = await client.datasets();
-const gold = catalogue.datasets.find((ds) => ds.name === "gold_ohlcv_1m")!;
+const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+const latest = partitions.map((p) => p.month).sort().at(-1)!;
 
-const partitions = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
-const latest = partitions.partitions.at(-1)!;
-
-const table = await client.readArrow("gold_ohlcv_1m", "BTC", latest.month, {
+const table = await client.readArrow("gold_ohlcv_1m", "BTC", latest, {
   columns: ["time", "close", "volume"],
 });
-console.log(`${table.numRows} rows for ${latest.month}`);
+console.log(`${table.numRows} rows for ${latest}`);
 console.log(table.toArray().slice(0, 5));
 ```
 
 ## Arrow
 
-`readArrow` returns an `apache-arrow` `Table` — typed columns, no copies beyond the read:
+`readArrow` returns an `apache-arrow` `Table`, materialised from the DuckDB view:
 
 ```ts
 import { TesseraClient } from "tessera-api";
@@ -114,11 +104,11 @@ const table = await client.readArrow("gold_ohlcv_1m", ["BTC", "ETH"], "2025-09")
 console.log(table.schema.fields.map((f) => `${f.name}: ${f.type}`));
 ```
 
-Column types are bridged from DuckDB's logical types, not guessed: integers keep their
-width, `float32`/`float64` stay floats, `timestamp[us]` becomes `Timestamp<MICROSECOND>`,
-`date` becomes `Date32<DAY>`, `time` stays `Time64`, and `list<T>` stays a `List`. A column
-whose type has no faithful Arrow builder (`DECIMAL`, `HUGEINT`, `STRUCT`, `MAP`, …) raises a
-`TesseraError` naming the type — project around it with `columns`.
+Column types are bridged from DuckDB's logical types, not guessed: integers keep their width,
+`float32`/`float64` stay floats, `timestamp[us]` becomes `Timestamp<MICROSECOND>`, `date`
+becomes `Date32<DAY>`, `time` stays `Time64`, and `list<T>` stays a `List`. A column whose
+type has no faithful Arrow builder (`DECIMAL`, `HUGEINT`, `STRUCT`, `MAP`, …) raises a
+`TesseraError` naming the type; project around it with `columns`.
 
 ## SQL with DuckDB
 
@@ -133,7 +123,7 @@ const connection = await client.toDuckDB("gold_ohlcv_1m", ["BTC", "ETH"], "2025-
   columns: ["time", "coin", "close", "volume"],
 });
 
-const result = await connection.run(
+const result = await connection.runAndReadAll(
   "SELECT coin, count(*) AS bars, round(avg(close), 2) AS avg_close FROM tessera GROUP BY coin",
 );
 console.table(result.getRowObjectsJS());
@@ -144,14 +134,14 @@ connection.closeSync();
 Pass `options.connection` to reuse an existing DuckDB connection instead of opening an
 in-memory one; the view is created on it and the same connection is returned.
 
-Presigned URLs are short-lived (~15 minutes). Read promptly; for long-lived graphs, call
-`readArrow` / `toDuckDB` again to mint fresh URLs.
+Presigned URLs are short-lived (around 15 minutes). Read promptly; for long-lived graphs,
+call `readArrow` or `toDuckDB` again to mint fresh URLs.
 
 ## Multiple coins and months
 
 `coin` and `month` arguments accept a single value, an array, or an inclusive `MonthSpan`.
-Multi-partition reads append `coin`/`month` columns so rows stay attributable to their
-source partition:
+Multi-partition reads append `coin`/`month` columns so rows stay attributable to their source
+partition:
 
 ```ts
 import { MonthSpan, TesseraClient } from "tessera-api";
@@ -165,12 +155,12 @@ const table = await client.readArrow(
 ```
 
 The current month is *day-backed*: it has no single month object, so the API publishes one
-Parquet per day. The readers concatenate those day objects transparently — a partition is
-still one logical month, and provenance columns stay per partition.
+Parquet per day. The readers concatenate those day objects transparently, so a partition is
+still one logical month and provenance columns stay per partition.
 
-Months outside the trailing 30-day window are not served (`NotFoundError`) unless your
-account holds a bundle covering them — call `partitions()` to discover what's available, as
-in the quickstart.
+Months outside the trailing 30-day window are not served (`NotFoundError`) unless your account
+holds a bundle covering them. Call `partitions()` to discover what's available, as in the
+quickstart.
 
 ## Configuration
 
@@ -185,7 +175,7 @@ const client = new TesseraClient(process.env.TESSERA_API_KEY, {
 ```
 
 The resolved values are on `client.config` (`apiKey`, `baseUrl`, `timeoutMs`, `maxRetries`,
-`userAgent`). `fetchImpl` accepts a custom `fetch` — useful for proxies, instrumentation, or
+`userAgent`). `fetchImpl` accepts a custom `fetch`, useful for proxies, instrumentation, or
 tests; auth headers and retries still apply.
 
 ## Error handling
@@ -199,7 +189,6 @@ import {
   PresignExpiredError,
   TesseraAPIError,
   TesseraClient,
-  TesseraError,
 } from "tessera-api";
 
 const client = new TesseraClient();
@@ -210,11 +199,9 @@ try {
   if (error instanceof NotFoundError) {
     console.error("no such partition:", error.message);
   } else if (error instanceof PresignExpiredError) {
-    console.error("presigned URL expired — call readArrow() again for fresh ones");
+    console.error("presigned URL expired, call readArrow() again for fresh ones");
   } else if (error instanceof TesseraAPIError) {
     console.error(`HTTP ${error.statusCode} (${error.code ?? "no code"})`);
-  } else if (error instanceof TesseraError) {
-    throw error;
   } else {
     throw error;
   }
@@ -224,20 +211,20 @@ try {
 | Error | When |
 | --- | --- |
 | `ConfigurationError` | No API key resolvable |
-| `MissingDependencyError` | `@duckdb/node-api` / `apache-arrow` not installed |
+| `MissingDependencyError` | `@duckdb/node-api` or `apache-arrow` not installed |
 | `NetworkError` | Connection or timeout failure after exhausting retries |
 | `PresignExpiredError` | A presigned URL was rejected (likely expired) |
-| `BadRequestError` | 400 — malformed request |
-| `AuthenticationError` | 401 — key missing, invalid, or revoked |
-| `ForbiddenError` | 403 — not permitted for your account |
-| `NotFoundError` | 404 — dataset, coin, or partition not visible to your key |
-| `InternalServerError` | 500 — unexpected server error |
-| `ServiceUnavailableError` | 502/503/504 — temporarily unavailable, safe to retry |
+| `BadRequestError` | 400: malformed request |
+| `AuthenticationError` | 401: key missing, invalid, or revoked |
+| `ForbiddenError` | 403: not permitted for your account |
+| `NotFoundError` | 404: dataset, coin, or partition not visible to your key |
+| `InternalServerError` | 500: unexpected server error |
+| `ServiceUnavailableError` | 502/503/504: temporarily unavailable, safe to retry |
 
 ## The raw API
 
-The typed endpoints are also available directly — for browsing the catalogue or fetching
-the Parquet bytes yourself:
+The typed endpoints are also available directly, for browsing the catalogue or fetching the
+Parquet bytes yourself:
 
 ```ts
 import { TesseraClient, downloadUrls } from "tessera-api";
@@ -263,10 +250,9 @@ for (const url of downloadUrls(download)) console.log(url);
 
 ## Documentation
 
-- 📘 TypeScript guide: <https://tesseralytics.dev/ts-client>
-- 🌐 Product & pricing: <https://tesseralytics.dev>
-- 🐍 Python client: <https://tesseralytics.dev/python-client>
-- 🦀 Rust client: <https://tesseralytics.dev/rust-client>
+- Product and pricing: <https://tesseralytics.dev/pricing>
+- Python client: <https://tesseralytics.dev/python-client>
+- Rust client: <https://tesseralytics.dev/rust-client>
 
 ## License
 
