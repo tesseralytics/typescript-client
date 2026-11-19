@@ -1,0 +1,81 @@
+{
+  "name": "tessera-api",
+  "version": "0.1.0",
+  "description": "Official TypeScript client for the Tessera API \u2014 Hyperliquid datasets into DuckDB & Arrow over presigned Parquet.",
+  "type": "module",
+  "license": "GPL-3.0",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "lint": "tsc --noEmit",
+    "codegen": "openapi-typescript openapi.json -o src/generated/schema.d.ts",
+    "prepublishOnly": "npm run lint && npm run build && publint"
+  },
+  "keywords": [
+    "hyperliquid",
+    "crypto",
+    "trading",
+    "market-data",
+    "ohlcv",
+    "funding-rates",
+    "duckdb",
+    "parquet",
+    "arrow",
+    "quant",
+    "backtesting"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tesseralytics/ts-client.git"
+  },
+  "homepage": "https://tesseralytics.dev/ts-client",
+  "bugs": {
+    "url": "https://github.com/tesseralytics/ts-client/issues"
+  },
+  "peerDependencies": {
+    "@duckdb/node-api": "*",
+    "apache-arrow": "*"
+  },
+  "peerDependenciesMeta": {
+    "@duckdb/node-api": {
+      "optional": true
+    },
+    "apache-arrow": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@duckdb/node-api": "2.0.0-r.1",
+    "@types/node": "^26.6.6",
+    "apache-arrow": "^21.2.0",
+    "openapi-typescript": "^7.13.0",
+    "publint": "^0.3.25",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
