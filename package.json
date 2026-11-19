@@ -50,11 +50,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tesseralytics/ts-client.git"
+    "url": "git+https://github.com/tesseralytics/typescript-client.git"
   },
   "homepage": "https://tesseralytics.dev",
   "bugs": {
-    "url": "https://github.com/tesseralytics/ts-client/issues"
+    "url": "https://github.com/tesseralytics/typescript-client/issues"
   },
   "peerDependencies": {
     "@duckdb/node-api": "*",
