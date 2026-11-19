@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import { DuckDBConnection } from "@duckdb/node-api";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { PresignExpiredError } from "../src/errors.js";
+import { NetworkError, PresignExpiredError, TesseraError } from "../src/errors.js";
 import { partitionRef } from "../src/models.js";
-import { buildConnection, readArrowFromConnection } from "../src/readers/duckdb.js";
+import { buildConnection, readArrowFromConnection, toReaderError } from "../src/readers/duckdb.js";
 import type { ResolvedPartition } from "../src/resolver.js";
 
 const DATA_DIR_URL = new URL("./data/duckdb/", import.meta.url);
@@ -31,14 +31,14 @@ beforeAll(async () => {
   try {
     await connection.run(
       "CREATE TABLE a AS SELECT * FROM (VALUES " +
-        "('2025-09-01 00:00:00'::TIMESTAMP, 60000.5::DOUBLE, 1.5::DOUBLE), " +
-        "('2025-09-01 00:01:00'::TIMESTAMP, 60010.0::DOUBLE, 2.5::DOUBLE), " +
-        "('2025-09-01 00:02:00'::TIMESTAMP, 60020.25::DOUBLE, 3.5::DOUBLE)) t(time, close, volume)",
+        "('2025-09-01 00:00:00'::TIMESTAMP, 60000.5::DOUBLE, 1.5::DOUBLE, 'BTC'::VARCHAR), " +
+        "('2025-09-01 00:01:00'::TIMESTAMP, 60010.0::DOUBLE, 2.5::DOUBLE, 'BTC'::VARCHAR), " +
+        "('2025-09-01 00:02:00'::TIMESTAMP, 60020.25::DOUBLE, 3.5::DOUBLE, 'BTC'::VARCHAR)) t(time, close, volume, coin)",
     );
     await connection.run(
       "CREATE TABLE b AS SELECT * FROM (VALUES " +
-        "('2025-09-01 00:00:00'::TIMESTAMP, 3000.5::DOUBLE, 4.5::DOUBLE), " +
-        "('2025-09-01 00:01:00'::TIMESTAMP, 3001.0::DOUBLE, 5.5::DOUBLE)) t(time, close, volume)",
+        "('2025-09-01 00:00:00'::TIMESTAMP, 3000.5::DOUBLE, 4.5::DOUBLE, 'ETH'::VARCHAR), " +
+        "('2025-09-01 00:01:00'::TIMESTAMP, 3001.0::DOUBLE, 5.5::DOUBLE, 'ETH'::VARCHAR)) t(time, close, volume, coin)",
     );
     await connection.run(`COPY a TO '${A}' (FORMAT PARQUET)`);
     await connection.run(`COPY b TO '${B}' (FORMAT PARQUET)`);
@@ -114,23 +114,31 @@ describe("buildConnection", () => {
   });
 
   it("refuses a column name that is not a bare identifier", async () => {
-    await expect(
-      buildConnection([part("BTC", "2025-09", [A])], { columns: ["close; DROP TABLE x"] }),
-    ).rejects.toThrowError("invalid column name: 'close; DROP TABLE x'");
+    const error = await buildConnection([part("BTC", "2025-09", [A])], {
+      columns: ["close; DROP TABLE x"],
+    }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(TesseraError);
+    expect((error as Error).message).toBe("invalid column name: 'close; DROP TABLE x'");
   });
 
   it("maps a missing parquet file to NetworkError", async () => {
-    await expect(
-      buildConnection([part("BTC", "2025-09", [`${DATA_DIR}missing.parquet`])]),
-    ).rejects.toThrowError(/missing\.parquet/);
+    const error = await buildConnection([
+      part("BTC", "2025-09", [`${DATA_DIR}missing.parquet`]),
+    ]).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(NetworkError);
+    expect((error as Error).message).toMatch(/missing\.parquet/);
   });
 
-  it("translates a rejected/expired URL into PresignExpiredError", async () => {
-    const error = await buildConnection([
-      part("BTC", "2025-09", [`${DATA_DIR}expired.parquet`]),
-    ]).catch((err: unknown) => err);
+  it("translates a rejected/expired URL into PresignExpiredError", () => {
+    const error = toReaderError(
+      new Error("HTTP Error: HTTP GET error on 'https://x/y.parquet' (HTTP 403 Forbidden)"),
+    );
     expect(error).toBeInstanceOf(PresignExpiredError);
     expect((error as Error).message).toMatch(/call toDuckDB\(\)\/readArrow\(\) again/);
+  });
+
+  it("does not treat an unrelated 403 number as a presign failure", () => {
+    expect(toReaderError(new Error("conversion error at row 403"))).toBeInstanceOf(NetworkError);
   });
 });
 
@@ -144,6 +152,7 @@ describe("readArrowFromConnection", () => {
         "time:Timestamp<MICROSECOND>",
         "close:Float64",
         "volume:Float64",
+        "coin:Utf8",
       ]);
       expect(table.getChild("close")?.get(0)).toBe(60000.5);
       // 2025-09-01T00:00:00Z; Arrow's vector `get` normalises timestamps to epoch ms.
@@ -198,6 +207,15 @@ describe("readArrowFromConnection", () => {
       expect(table.numRows).toBe(5);
       expect(table.schema.fields.map((field) => field.name)).toContain("coin");
       expect(table.schema.fields.map((field) => field.name)).toContain("month");
+      expect(table.schema.fields.map((field) => field.name)).not.toContain("coin_1");
+      expect(
+        (await connection.runAndReadAll(
+          "SELECT coin, count(*) AS n FROM tessera GROUP BY coin ORDER BY coin",
+        )).getRowObjectsJS(),
+      ).toEqual([
+        { coin: "BTC", n: 3n },
+        { coin: "ETH", n: 2n },
+      ]);
     } finally {
       connection.closeSync();
     }

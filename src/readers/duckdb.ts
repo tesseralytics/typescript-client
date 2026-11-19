@@ -24,9 +24,16 @@ import {
 import type { ResolvedPartition } from "../resolver.js";
 
 /** Substrings of a DuckDB error that mean "the presigned URL was rejected". */
-const PRESIGN_MARKERS = ["403", "expired", "accessdenied", "access denied", "forbidden"] as const;
+const PRESIGN_MARKERS = [
+  "http 403",
+  "403 forbidden",
+  "expired",
+  "accessdenied",
+  "access denied",
+  "forbidden",
+] as const;
 
-/** Column names injected into SQL; anything outside this shape is refused. */
+/** Column names accepted from callers; anything outside this shape is refused. */
 const COLUMN_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 type DuckDBModule = typeof DuckDB;
@@ -86,7 +93,8 @@ export function sqlUrlList(urls: readonly string[]): string {
 }
 
 /** Translate a DuckDB failure into the client's error taxonomy. */
-function toReaderError(error: unknown): Error {
+export function toReaderError(error: unknown): Error {
+  if (error instanceof TesseraError) return error;
   const message = error instanceof Error ? error.message : String(error);
   const lower = message.toLowerCase();
   if (PRESIGN_MARKERS.some((marker) => lower.includes(marker))) {
@@ -103,7 +111,7 @@ function projectionSql(columns?: readonly string[]): string {
   if (columns === undefined || columns.length === 0) return "*";
   for (const column of columns) {
     if (!COLUMN_RE.test(column)) {
-      throw new Error(`invalid column name: '${column}'`);
+      throw new TesseraError(`invalid column name: '${column}'`);
     }
   }
   return columns.join(", ");
@@ -113,8 +121,9 @@ function projectionSql(columns?: readonly string[]): string {
  * Build a connection carrying a `tessera` view over the resolved partitions.
  *
  * A day-backed partition (the open month) reads all of its day objects as one leaf. For
- * multi-partition reads each leaf is unioned with a `coin` and `month` column identifying
- * the source partition. Query it with `SELECT ... FROM tessera`.
+ * multi-partition reads each leaf is unioned with a `month` column identifying the source
+ * partition; `coin` is a native Parquet column in every dataset. Query it with
+ * `SELECT ... FROM tessera`.
  *
  * The returned connection is the caller's to close (`connection.closeSync()`), unless it
  * was supplied in `options.connection`, in which case it is returned unchanged.
@@ -131,8 +140,10 @@ export async function buildConnection(
   const multi = parts.length > 1;
 
   const selects = parts.map(({ ref, urls }) => {
+    // `coin` already exists in every Parquet leaf. Appending another `coin` alias makes
+    // DuckDB silently rename it to `coin_1`, so only `month` is injected.
     const projection = multi
-      ? `${selectColumns}, ${sqlStr(ref.coin)} AS coin, ${sqlStr(ref.month)} AS month`
+      ? `${selectColumns}, ${sqlStr(ref.month)} AS month`
       : selectColumns;
     return `SELECT ${projection} FROM read_parquet(${sqlUrlList(urls)})`;
   });
@@ -243,21 +254,30 @@ export async function readArrowFromConnection(
 ): Promise<Table> {
   const duckdb = await requireDuckDB();
   const arrow = await requireArrow();
+  const projection = projectionSql(columns);
 
   let reader;
   try {
-    reader = await connection.runAndReadAll(`SELECT ${projectionSql(columns)} FROM tessera`);
+    reader = await connection.runAndReadAll(`SELECT ${projection} FROM tessera`);
   } catch (error) {
     throw toReaderError(error);
   }
 
-  const names = reader.columnNames();
-  const values = reader.getColumnsJS();
-  const vectors: Record<string, Arrow.Vector> = {};
-  for (let index = 0; index < names.length; index += 1) {
-    const name = names[index] as string;
-    const type = arrowTypeFor(duckdb, arrow, reader.columnLogicalType(index));
-    vectors[name] = arrow.vectorFromArray(values[index] ?? [], type);
+  try {
+    const names = reader.columnNames();
+    const values = reader.getColumnsJS();
+    const vectors: Record<string, Arrow.Vector> = {};
+    for (let index = 0; index < names.length; index += 1) {
+      const name = names[index] as string;
+      const type = arrowTypeFor(duckdb, arrow, reader.columnLogicalType(index));
+      vectors[name] = arrow.vectorFromArray(values[index] ?? [], type);
+    }
+    return new arrow.Table(vectors);
+  } catch (error) {
+    if (error instanceof TesseraError) throw error;
+    throw new TesseraError(
+      `failed to materialise Arrow table: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
-  return new arrow.Table(vectors);
 }

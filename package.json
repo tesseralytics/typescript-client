@@ -52,7 +52,7 @@
     "type": "git",
     "url": "git+https://github.com/tesseralytics/ts-client.git"
   },
-  "homepage": "https://tesseralytics.dev/ts-client",
+  "homepage": "https://tesseralytics.dev",
   "bugs": {
     "url": "https://github.com/tesseralytics/ts-client/issues"
   },

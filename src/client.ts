@@ -27,7 +27,7 @@ import {
   resolveApiKey,
   type ClientConfig,
 } from "./config.js";
-import { NetworkError, TesseraError, errorFromResponse } from "./errors.js";
+import { ConfigurationError, NetworkError, TesseraError, errorFromResponse } from "./errors.js";
 import {
   type Coins,
   type DatasetsResponse,
@@ -39,6 +39,7 @@ import {
   type PartitionsResponse,
   downloadUrls,
   expandRefs,
+  validateMonth,
 } from "./models.js";
 import { buildConnection, readArrowFromConnection, requireDuckDB } from "./readers/duckdb.js";
 import { resolveRefs, type ResolvedPartition } from "./resolver.js";
@@ -97,7 +98,9 @@ function asDownload(body: unknown): Download {
  * @example
  * ```ts
  * const client = new TesseraClient();            // reads $TESSERA_API_KEY
- * const table = await client.readArrow("gold_ohlcv_1m", "BTC", "2025-09");
+ * const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+ * const latest = partitions.map((p) => p.month).sort().at(-1)!;
+ * const table = await client.readArrow("gold_ohlcv_1m", "BTC", latest);
  * ```
  */
 export class TesseraClient {
@@ -107,14 +110,26 @@ export class TesseraClient {
   readonly #fetch: typeof fetch;
 
   constructor(apiKey?: string, options: TesseraClientOptions = {}) {
+    const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
+    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+      throw new ConfigurationError(`timeoutMs must be a positive number, got ${timeoutMs}`);
+    }
+    if (!Number.isInteger(maxRetries) || maxRetries < 0) {
+      throw new ConfigurationError(`maxRetries must be a non-negative integer, got ${maxRetries}`);
+    }
+    const fetchImpl = options.fetchImpl ?? fetch;
+    if (typeof fetchImpl !== "function") {
+      throw new ConfigurationError("fetchImpl must be a function");
+    }
     this.config = {
       apiKey: resolveApiKey(apiKey),
       baseUrl: (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/, ""),
-      timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-      maxRetries: options.maxRetries ?? DEFAULT_MAX_RETRIES,
+      timeoutMs,
+      maxRetries,
       userAgent: USER_AGENT,
     };
-    this.#fetch = options.fetchImpl ?? fetch;
+    this.#fetch = fetchImpl;
   }
 
   // -- transport ---------------------------------------------------------
@@ -143,11 +158,27 @@ export class TesseraClient {
         continue;
       }
       if (!last && shouldRetry(response.status)) {
+        // Free the socket before the backoff; undici keeps concurrent connections open
+        // until the body is consumed or cancelled.
+        await response.body?.cancel().catch(() => undefined);
         await sleep(backoffDelay(attempt, parseRetryAfter(response.headers)));
         continue;
       }
-      if (response.ok) return response.json();
-      throw errorFromResponse(response.status, await response.text());
+      if (!response.ok) {
+        const body = await response.text().catch(() => null);
+        throw errorFromResponse(response.status, body);
+      }
+      try {
+        return await response.json();
+      } catch (error) {
+        if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) {
+          throw new NetworkError(
+            `network error reading Tessera response: ${error.message}`,
+            { cause: error },
+          );
+        }
+        throw new TesseraError("Tessera API returned a malformed JSON body", { cause: error });
+      }
     }
   }
 
@@ -163,6 +194,7 @@ export class TesseraClient {
     asset: string,
     options: { coin?: string; month?: string } = {},
   ): Promise<PartitionsResponse> {
+    if (options.month !== undefined) validateMonth(options.month);
     const body = await this.request(partitionsRequest(asset, options.coin, options.month));
     return body as PartitionsResponse;
   }
@@ -174,6 +206,7 @@ export class TesseraClient {
    * day-backed and returns a {@link DayDownloadResponse} carrying one URL per day object.
    */
   async downloadUrl(asset: string, coin: string, month: string): Promise<Download> {
+    validateMonth(month);
     return asDownload(await this.request(downloadRequest(asset, coin, month)));
   }
 

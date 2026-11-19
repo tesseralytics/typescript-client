@@ -22,6 +22,7 @@ describe("validateMonth", () => {
   it.each(["2025-13", "2025-00", "25-09", "2025-9", "2025-09-01", ""])(
     "rejects %s with the Python message",
     (month) => {
+      expect(() => validateMonth(month)).toThrowError(TesseraError);
       expect(() => validateMonth(month)).toThrowError(
         /^month must be in YYYY-MM format, got '/,
       );

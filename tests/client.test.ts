@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   AuthenticationError,
@@ -7,6 +7,7 @@ import {
   NotFoundError,
   ServiceUnavailableError,
   TesseraAPIError,
+  TesseraError,
   errorFromResponse,
 } from "../src/errors.js";
 import type { DayDownloadResponse } from "../src/models.js";
@@ -23,6 +24,10 @@ import {
   json,
   stubFetch,
 } from "./fixtures.js";
+
+beforeEach(() => {
+  delete process.env.TESSERA_API_KEY;
+});
 
 afterEach(() => {
   delete process.env.TESSERA_API_KEY;
@@ -134,6 +139,42 @@ describe("requests", () => {
     const client = new TesseraClient(API_KEY, { baseUrl: BASE_URL, fetchImpl: stub.fetchImpl });
     await expect(client.downloadUrl("gold_ohlcv_1m", "BTC", "2025-09")).rejects.toThrowError(
       /unrecognised body/,
+    );
+  });
+});
+
+describe("validation and protocol errors", () => {
+  const makeClient = () => {
+    const stub = stubFetch({});
+    return {
+      client: new TesseraClient(API_KEY, { baseUrl: BASE_URL, fetchImpl: stub.fetchImpl }),
+      stub,
+    };
+  };
+
+  it("rejects a malformed month before making a request", async () => {
+    const { client, stub } = makeClient();
+    await expect(client.downloadUrl("gold_ohlcv_1m", "BTC", "2026-13")).rejects.toThrowError(
+      TesseraError,
+    );
+    await expect(
+      client.partitions("gold_ohlcv_1m", { month: "2026-13" }),
+    ).rejects.toThrowError(TesseraError);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it("wraps a malformed JSON body in TesseraError", async () => {
+    const stub = stubFetch({ "/v1/datasets": () => new Response("not json", { status: 200 }) });
+    const client = new TesseraClient(API_KEY, { baseUrl: BASE_URL, fetchImpl: stub.fetchImpl });
+    const error = await client.datasets().catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(TesseraError);
+    expect((error as Error).message).toContain("malformed JSON");
+  });
+
+  it("rejects invalid client configuration", () => {
+    expect(() => new TesseraClient(API_KEY, { timeoutMs: 0 })).toThrowError(ConfigurationError);
+    expect(() => new TesseraClient(API_KEY, { maxRetries: -1 })).toThrowError(
+      ConfigurationError,
     );
   });
 });

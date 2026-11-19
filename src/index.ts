@@ -6,7 +6,9 @@
  * import { TesseraClient } from "tessera-api";
  *
  * const client = new TesseraClient();          // reads $TESSERA_API_KEY
- * const table = await client.readArrow("gold_ohlcv_1m", "BTC", "2025-09");
+ * const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+ * const latest = partitions.map((p) => p.month).sort().at(-1)!;
+ * const table = await client.readArrow("gold_ohlcv_1m", "BTC", latest);
  * ```
  *
  * See https://tesseralytics.dev for an API key and the dataset reference.

@@ -87,6 +87,25 @@ describe("retry policy", () => {
     expect(stub.calls).toHaveLength(3);
   });
 
+  it("cancels a retryable response body before backing off", async () => {
+    let cancelled = false;
+    const body = new ReadableStream({
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const stub = stubFetch({
+      "/v1/datasets": sequence(
+        () => new Response(body, { status: 503 }),
+        json(DATASETS_BODY),
+      ),
+    });
+    const pending = clientFor(stub.fetchImpl, 1).datasets();
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(pending).resolves.toMatchObject({ generated_at: "2025-09-27T10:30:00Z" });
+    expect(cancelled).toBe(true);
+  });
+
   it("does not retry a 404", async () => {
     const stub = stubFetch({ "/v1/datasets/nope": json({ error: "not_found" }, 404) });
     await expect(clientFor(stub.fetchImpl, 3).partitions("nope")).rejects.toThrowError(

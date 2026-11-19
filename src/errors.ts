@@ -56,9 +56,9 @@ export class AuthenticationError extends TesseraAPIError {}
 /**
  * 403 — the request is not permitted for your account.
  *
- * The free key reaches every dataset and every market, so this is not a tier wall:
- * history outside the trailing window is purchased as a one-off bundle and refuses
- * with {@link NotFoundError} instead.
+ * The free key reaches every published dataset and market. The API also hides unknown
+ * datasets behind this status; history outside the trailing window returns
+ * {@link NotFoundError} instead of a tier wall.
  */
 export class ForbiddenError extends TesseraAPIError {}
 

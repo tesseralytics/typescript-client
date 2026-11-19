@@ -25,9 +25,16 @@ jobs:
         run: |
           npm run codegen
           git diff --exit-code -- src/generated
+      - name: Build
+        run: npm run build
+      - name: Verify package layout
+        run: npx publint
 
   test:
     runs-on: ubuntu-latest
+    env:
+      # Tests must not depend on the ambient key; keep this set to catch regressions.
+      TESSERA_API_KEY: ci-dummy-key
     strategy:
       fail-fast: false
       matrix:

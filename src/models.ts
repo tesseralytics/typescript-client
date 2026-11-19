@@ -48,7 +48,7 @@ export const MONTH_REGEX = /^\d{4}-(0[1-9]|1[0-2])$/;
 /** Validate a `YYYY-MM` month, returning it unchanged. */
 export function validateMonth(month: string): string {
   if (!MONTH_REGEX.test(month)) {
-    throw new Error(`month must be in YYYY-MM format, got '${month}'`);
+    throw new TesseraError(`month must be in YYYY-MM format, got '${month}'`);
   }
   return month;
 }
@@ -84,7 +84,7 @@ export class MonthSpan implements Iterable<string> {
     this.start = validateMonth(start);
     this.end = validateMonth(end);
     if (this.start > this.end) {
-      throw new Error(`MonthSpan start '${this.start}' is after end '${this.end}'`);
+      throw new TesseraError(`MonthSpan start '${this.start}' is after end '${this.end}'`);
     }
   }
 
@@ -129,8 +129,8 @@ export function normalizeMonths(month: Months): string[] {
 export function expandRefs(asset: string, coins: Coins, months: Months): PartitionRef[] {
   const coinList = normalizeCoins(coins);
   const monthList = normalizeMonths(months);
-  if (coinList.length === 0) throw new Error("at least one coin is required");
-  if (monthList.length === 0) throw new Error("at least one month is required");
+  if (coinList.length === 0) throw new TesseraError("at least one coin is required");
+  if (monthList.length === 0) throw new TesseraError("at least one month is required");
   const refs: PartitionRef[] = [];
   for (const coin of coinList) {
     for (const month of monthList) refs.push({ asset, coin, month });

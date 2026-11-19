@@ -33,6 +33,9 @@ npm install tessera-api
 npm install @duckdb/node-api apache-arrow
 ```
 
+The engines are optional at runtime, but the public type declarations reference their types.
+TypeScript consumers who typecheck without `skipLibCheck` need both installed.
+
 Requires **Node 18.17+** (native `fetch`, `AbortSignal.timeout`). Grab a free API key (no card
 required) at **[tesseralytics.dev](https://tesseralytics.dev/signup)**:
 
@@ -99,8 +102,10 @@ console.log(table.toArray().slice(0, 5));
 import { TesseraClient } from "tessera-api";
 
 const client = new TesseraClient();
-const table = await client.readArrow("gold_ohlcv_1m", ["BTC", "ETH"], "2025-09");
-// Multi-partition reads carry `coin`/`month` columns identifying the source partition.
+const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+const latest = partitions.map((p) => p.month).sort().at(-1)!;
+const table = await client.readArrow("gold_ohlcv_1m", ["BTC", "ETH"], latest);
+// Multi-partition reads add a `month` column; `coin` is a native column in every dataset.
 console.log(table.schema.fields.map((f) => `${f.name}: ${f.type}`));
 ```
 
@@ -119,7 +124,9 @@ filters and aggregations push down to object storage via `httpfs`:
 import { TesseraClient } from "tessera-api";
 
 const client = new TesseraClient();
-const connection = await client.toDuckDB("gold_ohlcv_1m", ["BTC", "ETH"], "2025-09", {
+const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+const latest = partitions.map((p) => p.month).sort().at(-1)!;
+const connection = await client.toDuckDB("gold_ohlcv_1m", ["BTC", "ETH"], latest, {
   columns: ["time", "coin", "close", "volume"],
 });
 
@@ -134,23 +141,29 @@ connection.closeSync();
 Pass `options.connection` to reuse an existing DuckDB connection instead of opening an
 in-memory one; the view is created on it and the same connection is returned.
 
+`columns` narrows both engines. `readArrow` returns exactly the requested fields; a
+multi-partition `toDuckDB` view also keeps the injected `month` column (and `coin` when
+selected).
+
 Presigned URLs are short-lived (around 15 minutes). Read promptly; for long-lived graphs,
 call `readArrow` or `toDuckDB` again to mint fresh URLs.
 
 ## Multiple coins and months
 
 `coin` and `month` arguments accept a single value, an array, or an inclusive `MonthSpan`.
-Multi-partition reads append `coin`/`month` columns so rows stay attributable to their source
-partition:
+Multi-partition reads add a `month` column so rows stay attributable to their source
+partition; `coin` is a native column in every dataset:
 
 ```ts
 import { MonthSpan, TesseraClient } from "tessera-api";
 
 const client = new TesseraClient();
+const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+const months = partitions.map((p) => p.month).sort();
 const table = await client.readArrow(
   "gold_ohlcv_1m",
   ["BTC", "ETH", "SOL"],
-  new MonthSpan("2025-08", "2025-09"),
+  new MonthSpan(months[0]!, months.at(-1)!),
 );
 ```
 
@@ -181,7 +194,8 @@ tests; auth headers and retries still apply.
 ## Error handling
 
 Every failure is a `TesseraError`; API errors additionally carry `statusCode` and the
-machine-readable `code`:
+machine-readable `code`. Local validation (a malformed month, an unknown column) also throws
+`TesseraError` before any request is sent:
 
 ```ts
 import {
@@ -210,14 +224,14 @@ try {
 
 | Error | When |
 | --- | --- |
-| `ConfigurationError` | No API key resolvable |
+| `ConfigurationError` | No API key resolvable, or invalid `timeoutMs`/`maxRetries` |
 | `MissingDependencyError` | `@duckdb/node-api` or `apache-arrow` not installed |
 | `NetworkError` | Connection or timeout failure after exhausting retries |
 | `PresignExpiredError` | A presigned URL was rejected (likely expired) |
 | `BadRequestError` | 400: malformed request |
 | `AuthenticationError` | 401: key missing, invalid, or revoked |
-| `ForbiddenError` | 403: not permitted for your account |
-| `NotFoundError` | 404: dataset, coin, or partition not visible to your key |
+| `ForbiddenError` | 403: not permitted, or the dataset is not visible to your key |
+| `NotFoundError` | 404: coin or partition not visible (including months outside your window) |
 | `InternalServerError` | 500: unexpected server error |
 | `ServiceUnavailableError` | 502/503/504: temporarily unavailable, safe to retry |
 
@@ -238,13 +252,15 @@ for (const ds of (await client.datasets()).datasets) {
 }
 
 // Per-partition detail for one dataset: month, row count, on-disk size, …
-for (const p of (await client.partitions("gold_ohlcv_1m", { coin: "BTC" })).partitions) {
+const { partitions } = await client.partitions("gold_ohlcv_1m", { coin: "BTC" });
+for (const p of partitions) {
   console.log(`${p.month} · ${p.rows ?? "-"} rows · ${Math.round(p.size_bytes / 1024 / 1024)} MiB`);
 }
 
-// Presigned download URLs for a single partition: one object for a finalised month,
+// Presigned download URLs for the newest partition: one object for a finalised month,
 // one per day for the day-backed open month.
-const download = await client.downloadUrl("gold_ohlcv_1m", "BTC", "2026-10");
+const latest = partitions.map((p) => p.month).sort().at(-1)!;
+const download = await client.downloadUrl("gold_ohlcv_1m", "BTC", latest);
 for (const url of downloadUrls(download)) console.log(url);
 ```
 

@@ -34,11 +34,11 @@ beforeAll(async () => {
   try {
     await connection.run(
       "CREATE TABLE a AS SELECT * FROM (VALUES " +
-        "('2025-09-01 00:00:00'::TIMESTAMP, 60000.5::DOUBLE), " +
-        "('2025-09-01 00:01:00'::TIMESTAMP, 60010::DOUBLE)) t(time, close)",
+        "('2025-09-01 00:00:00'::TIMESTAMP, 60000.5::DOUBLE, 'BTC'::VARCHAR), " +
+        "('2025-09-01 00:01:00'::TIMESTAMP, 60010::DOUBLE, 'BTC'::VARCHAR)) t(time, close, coin)",
     );
     await connection.run(
-      "CREATE TABLE b AS SELECT * FROM (VALUES ('2025-09-01 00:00:00'::TIMESTAMP, 3000.5::DOUBLE)) t(time, close)",
+      "CREATE TABLE b AS SELECT * FROM (VALUES ('2025-09-01 00:00:00'::TIMESTAMP, 3000.5::DOUBLE, 'ETH'::VARCHAR)) t(time, close, coin)",
     );
     await connection.run(`COPY a TO '${new URL(A).pathname}' (FORMAT PARQUET)`);
     await connection.run(`COPY b TO '${new URL(B).pathname}' (FORMAT PARQUET)`);
@@ -63,11 +63,22 @@ describe("engine methods", () => {
       "coin",
       "month",
     ]);
+    expect(table.schema.fields.map((field) => field.name)).not.toContain("coin_1");
     expect(stub.calls.map((call) => call.url.pathname).sort()).toEqual([
       downloadPath("BTC"),
       downloadPath("ETH"),
     ]);
     expect(stub.calls[0]?.headers.get("authorization")).toBe(`Bearer ${API_KEY}`);
+  });
+
+  it("projects coin on a multi-partition read without renaming it", async () => {
+    const { client } = clientOver({ BTC: A, ETH: B });
+    const table = await client.readArrow("gold_ohlcv_1m", ["BTC", "ETH"], "2025-09", {
+      columns: ["time", "coin", "close"],
+    });
+
+    expect(table.schema.fields.map((field) => field.name)).toEqual(["time", "coin", "close"]);
+    expect(table.getChild("coin")?.toArray()).toEqual(["BTC", "BTC", "ETH"]);
   });
 
   it("toDuckDB exposes the tessera view on an owned connection", async () => {
