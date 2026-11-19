@@ -267,6 +267,7 @@ for (const url of downloadUrls(download)) console.log(url);
 ## Documentation
 
 - Product and pricing: <https://tesseralytics.dev/pricing>
+- API reference: <https://tesseralytics.dev/typescript-client>
 - Python client: <https://tesseralytics.dev/python-client>
 - Rust client: <https://tesseralytics.dev/rust-client>
 

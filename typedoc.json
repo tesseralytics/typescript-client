@@ -1,0 +1,20 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "tessera-api",
+  "entryPoints": ["src/index.ts"],
+  "out": "site",
+  "readme": "README.md",
+  "includeVersion": true,
+  "excludeInternal": true,
+  "excludePrivate": true,
+  "intentionallyNotExported": ["components", "PreparedRequest"],
+  "externalSymbolLinkMappings": {
+    "apache-arrow": {
+      "Table": "https://arrow.apache.org/docs/js/classes/Table.html"
+    }
+  },
+  "navigationLinks": {
+    "Tessera": "https://tesseralytics.dev",
+    "GitHub": "https://github.com/tesseralytics/typescript-client"
+  }
+}
