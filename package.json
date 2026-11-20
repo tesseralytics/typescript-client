@@ -1,7 +1,7 @@
 {
   "name": "tessera-api",
-  "version": "0.1.0",
-  "description": "Official TypeScript client for the Tessera API \u2014 Hyperliquid datasets into DuckDB & Arrow over presigned Parquet.",
+  "version": "0.1.1",
+  "description": "Official TypeScript client for the Tessera API — Hyperliquid datasets into DuckDB & Arrow over presigned Parquet.",
   "type": "module",
   "license": "GPL-3.0",
   "engines": {
